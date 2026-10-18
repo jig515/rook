@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>rook · local model gateway</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23131517'/%3E%3Cpath d='M9 22V10h7a4 4 0 0 1 0 8h-3l5 4' stroke='%238f7bff' stroke-width='2.4' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+<div id="gate" class="gate">
+  <div class="gate-card">
+    <div class="gate-brand">rook</div>
+    <p class="gate-hint">输入控制台密钥（Admin Key）。启动时的终端里打印过，也写在 <code>config.json</code> 的 <code>adminKey</code>。</p>
+    <input id="gate-input" type="password" placeholder="admin key" autocomplete="off" spellcheck="false" />
+    <button id="gate-go" class="btn primary">进入</button>
+    <div id="gate-err" class="gate-err"></div>
+  </div>
+</div>
+
+<div id="app" class="app" hidden>
+  <aside class="rail">
+    <div class="brand">
+      <span class="brand-mark"></span>
+      <span class="brand-name">rook</span>
+      <span class="brand-ver" id="ver">v0</span>
+    </div>
+    <nav class="nav">
+      <button class="nav-item active" data-tab="connect"><i>◈</i><span>接入</span></button>
+      <button class="nav-item" data-tab="upstreams"><i>⌁</i><span>上游</span></button>
+      <button class="nav-item" data-tab="logs"><i>≡</i><span>日志</span></button>
+    </nav>
+    <div class="rail-models">
+      <div class="rail-title">在线模型 <b id="model-count">0</b></div>
+      <div id="rail-model-list" class="rail-model-list"></div>
+    </div>
+    <div class="rail-foot">
+      <button id="btn-settings" class="link">设置</button>
+      <span class="dot" id="live-dot"></span>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="top">
+      <h1 id="top-title">接入</h1>
+      <div class="top-right">
+        <span class="pill" id="pill-endpoint">—</span>
+        <button id="btn-refresh" class="btn ghost small">刷新</button>
+      </div>
+    </header>
+    <section id="view" class="view"></section>
+  </main>
+</div>
+
+<div id="modal" class="modal" hidden>
+  <div class="modal-backdrop"></div>
+  <div class="modal-panel" id="modal-panel"></div>
+</div>
+
+<div id="toast" class="toast" hidden></div>
+
+<script src="/app.js"></script>
+</body>
+</html>

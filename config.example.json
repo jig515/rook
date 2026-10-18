@@ -1,0 +1,39 @@
+{
+  "port": 8790,
+  "host": "127.0.0.1",
+  "apiKey": "",
+  "adminKey": "",
+  "timeoutMs": 240000,
+  "logLimit": 300,
+  "proxy": "",
+  "providers": [
+    {
+      "id": "my-relay",
+      "name": "Example relay",
+      "type": "openai",
+      "enabled": false,
+      "baseUrl": "https://your-relay.example.com/v1",
+      "apiKey": "sk-replace-me",
+      "useProxy": false,
+      "thinking": { "style": "reasoning_effort" },
+      "models": [
+        { "id": "some-model", "alias": "some-model", "thinkingLevel": "medium" }
+      ]
+    },
+    {
+      "id": "local-cli",
+      "name": "Local CLI",
+      "type": "cli",
+      "enabled": false,
+      "command": "claude",
+      "args": ["-p", "--model", "{{model}}", "--output-format", "stream-json", "--verbose"],
+      "inputFormat": "transcript",
+      "parser": "claude-stream",
+      "useProxy": false,
+      "thinking": { "style": "none" },
+      "models": [
+        { "id": "sonnet", "alias": "sonnet", "thinkingLevel": "off" }
+      ]
+    }
+  ]
+}
