@@ -1,12 +1,12 @@
 # rook
 
-本地模型网关。对外只暴露一套 OpenAI 兼容接口，对内挂多种后端：**本地命令（CLI）、中转站、反代**。给 SillyTavern 用。
+本地模型网关。对外只暴露一套 OpenAI 兼容接口，对内挂多种后端：**本地命令（CLI）、各家 API、反代**。给 SillyTavern 用。
 
 零依赖（Node 20.3+），一个 `node server.js` 起来，Web 控制台配完即用。
 
 ```
 酒馆  ──OpenAI 兼容──▶  rook  ──▶  claude / gemini / codex（子进程）
-                              ├──▶  任意 OpenAI 兼容中转
+                              ├──▶  任意 OpenAI 兼容 API
                               └──▶  原样透传的反向代理
 ```
 
@@ -42,7 +42,7 @@ node server.js
 | type | 用途 | 典型配置 |
 |---|---|---|
 | `cli` | 跑本地命令，stdin 喂对话，stdout 收回答 | `command: claude`，`args: [-p, --model, {{model}}, --output-format, stream-json, --verbose]` |
-| `openai` | 任何 OpenAI 兼容端点（官方、中转、new-api、one-api…） | `baseUrl: https://xxx/v1` + `apiKey` |
+| `openai` | 任何 OpenAI 兼容端点：OpenAI、OpenRouter、Groq、自建 new-api… | `baseUrl: https://api.openai.com/v1` + `apiKey` |
 | `proxy` | 字节级透传，不改请求体（除了 model 字段） | 上游不是 OpenAI 格式、或不想被改写时 |
 
 **模型** —— 每条上游下挂模型。`id` 是上游真实模型名，`alias` 是对外名；只填 alias 也行。酒馆里看到的是 alias。
@@ -122,7 +122,7 @@ CLI 每次请求起一个进程，慢、有额度限制、并发差。适合单�
 
 ```js
 export const type = 'myrelay';
-export const label = '我的中转';
+export const label = '我的服务商';
 export const fields = [{ key: 'baseUrl', label: 'Base URL' }];  // 驱动 UI 表单
 export const managesTimeout = true;   // 可选：自己管超时（CLI 子进程就是这么做的）
 
@@ -160,7 +160,7 @@ node test/smoke.mjs         # 端到端，起一个 mock 上游（66 项）
 node tools/ui-test.mjs <baseUrl> <adminKey>   # 真浏览器点控制台（18 项）
 ```
 
-smoke 覆盖的东西：四种 parser、120k 字符 prompt、5 并发、中转的 SSE 与 usage、
+smoke 覆盖的东西：四种 parser、120k 字符 prompt、5 并发、上游的 SSE 与 usage、
 上游 401/429/超时、tool_calls 拼装、反代透传、
 请求中断时子进程被杀、重复别名、空配置、路径穿越、无 key 时的 Origin 策略。
 
