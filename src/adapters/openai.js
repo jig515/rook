@@ -116,9 +116,12 @@ export async function* chat(ctx) {
     const choice = chunk.choices?.[0];
     if (choice) {
       const d = choice.delta || choice.message || {};
-      const reasoning = pickReasoning(d);
+      // The standard fields are the only real payload. extra_content.google.ordinary_parts
+      // is cumulative metadata (part order + thought signatures), NOT text — reading it
+      // repeats everything, see convert_chunk_to_openai in vertex2openai.
+      const reasoning = pickReasoning(d) || null;
       // Flatten array/object content into text instead of JSON-stringifying it.
-      const text = textOf(d.content);
+      const text = textOf(d.content) || null;
 
       // Keep the upstream's atomicity: if one chunk carries both reasoning and
       // body text, they leave here in one event so the client sees them in the
