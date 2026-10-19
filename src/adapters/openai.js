@@ -3,7 +3,7 @@
  * proxy that speaks /v1/chat/completions. This is the workhorse adapter.
  */
 import { applyThinking, pickReasoning } from '../thinking.js';
-import { trimSlash, readError, sseJson, normalizeMessages, textOf, TextChannel } from './_sse.js';
+import { trimSlash, readError, normalizeMessages } from './_sse.js';
 import { request } from '../http.js';
 
 export const type = 'openai';
@@ -66,11 +66,18 @@ export async function listModels(provider, opts = {}) {
   return arr.map((m) => ({ id: m.id || m.name, raw: m })).filter((m) => m.id);
 }
 
+
+/**
+ * Byte-for-byte relay.
+ *
+ * Whatever the upstream sends is what the client receives: no parsing, no
+ * reassembly, no field filtering. Every bug we shipped came from repacking the
+ * upstream's chunks into our own shape and getting a field wrong; this path has
+ * nothing to get wrong.
+ */
 export async function* chat(ctx) {
   const { provider, model, signal, log } = ctx;
   const { body, thinking, isStream } = buildBody(provider, model, ctx);
-  const contentCh = new TextChannel();
-  const reasoningCh = new TextChannel();
   const noteBase = `temp=${body.temperature ?? '-'} top_p=${body.top_p ?? '-'} max=${body.max_tokens ?? body.max_completion_tokens ?? '-'} · thinking=${thinking.level} · ${body.model}@${provider.baseUrl}`;
   log?.note?.(noteBase);
 
@@ -87,112 +94,23 @@ export async function* chat(ctx) {
   ctx.onHead?.();
   if (!res.body) throw new Error('upstream returned empty body');
 
-  // The client asked for a non-stream completion, so the upstream was asked for
-  // one too. Just read the JSON back and pass the pieces along.
   if (!isStream) {
-    let json;
-    try {
-      json = JSON.parse(await res.text());
-    } catch (e) {
-      throw new Error(`upstream sent non-JSON: ${e.message}`);
-    }
-    const choice = json.choices?.[0];
-    const msg = choice?.message || {};
-    const r = pickReasoning(msg);
-    if (r) yield { reasoning: r };
-    const t = textOf(msg.content);
-    if (t) yield { delta: t };
-    if (Array.isArray(msg.tool_calls) && msg.tool_calls.length) yield { toolCalls: msg.tool_calls };
-    if (choice?.finish_reason) yield { finish: choice.finish_reason };
-    const { choices: _c, usage, ...extra } = json;
-    if (Object.keys(extra).length) yield { extra };
-    if (usage) yield { usage };
+    yield { raw: await res.text() };
     return;
   }
 
-  let modelVersion = null;
-  let lastFingerprint = null;
-  const extraAll = {};
-  for await (const chunk of sseJson(res)) {
-    if (chunk.error) throw new Error(chunk.error.message || JSON.stringify(chunk.error));
-
-    const {
-      choices: _c,
-      usage: _u,
-      id: _id,
-      object: _obj,
-      created: _cr,
-      model: _mdl,
-      system_fingerprint: fp,
-      ...extra
-    } = chunk;
-
-    // The fingerprint only needs sending when it appears or changes; repeating it
-    // on every chunk just multiplies the event count.
-    if (fp && fp !== lastFingerprint) {
-      lastFingerprint = fp;
-      extra.system_fingerprint = fp;
-    }
-    if (chunk.modelVersion && chunk.modelVersion !== modelVersion) {
-      modelVersion = chunk.modelVersion;
-      log?.note?.(`${noteBase} · modelVersion=${modelVersion}`);
-    }
-
-    const choice = chunk.choices?.[0];
-    if (choice) {
-      const d = choice.delta || choice.message || {};
-
-      // Feed both possible carriers into per-channel accumulators.
-      //   increments: delta.content / delta.reasoning_content (the OpenAI way)
-      //   snapshots:  extra_content.google.ordinary_parts (Gemini behind a shim,
-      //               cumulative: every chunk repeats the whole text so far)
-      // TextChannel decides which is more complete; we never guess per vendor.
-      const incText = textOf(d.content);
-      const incReason = pickReasoning(d);
-      if (incText) contentCh.delta(incText);
-      if (incReason) reasoningCh.delta(incReason);
-
-      const parts = d.extra_content?.google?.ordinary_parts;
-      if (Array.isArray(parts) && parts.length) {
-        let r = '';
-        let c = '';
-        for (const pt of parts) {
-          if (!pt || typeof pt.text !== 'string' || !pt.text) continue;
-          if (pt.kind === 'thought') r += pt.text;
-          else c += pt.text;
-        }
-        reasoningCh.snapshot(r);
-        contentCh.snapshot(c);
+  res.body.setEncoding('utf8');
+  let seenVersion = null;
+  for await (const chunk of res.body) {
+    if (!chunk) continue;
+    // Observe only, never rewrite: modelVersion is useful in the log.
+    if (!seenVersion) {
+      const m = chunk.match(/"modelVersion"\s*:\s*"([^"]+)"/);
+      if (m) {
+        seenVersion = m[1];
+        log?.note?.(`${noteBase} · modelVersion=${seenVersion}`);
       }
-
-      const outText = contentCh.take();
-      const outReason = reasoningCh.take();
-
-      // Keep the upstream's atomicity: if one chunk carries both reasoning and
-      // body text, they leave here in one event so the client sees them in the
-      // same delta rather than as two separate chunks.
-      if (outText || outReason) yield { reasoning: outReason || undefined, delta: outText || undefined };
-      if (Array.isArray(d.tool_calls) && d.tool_calls.length) yield { toolCalls: d.tool_calls };
-
-      // Same for unknown keys inside the delta.
-      const {
-        content: _ct,
-        role: _r,
-        tool_calls: _tc,
-        reasoning_content: _rc,
-        reasoning: _rs,
-        thinking: _th,
-        reasoning_text: _rt,
-        ...deltaExtra
-      } = d;
-      if (Object.keys(deltaExtra).length) yield { deltaExtra };
-
-      if (choice.finish_reason) yield { finish: choice.finish_reason };
     }
-    if (Object.keys(extra).length) Object.assign(extraAll, extra);
-    if (chunk.usage) yield { usage: chunk.usage };
+    yield { raw: chunk };
   }
-  // Emit collected relay metadata once, at the end: repeating it per chunk only
-  // multiplies the event stream with empty deltas.
-  if (Object.keys(extraAll).length) yield { extra: extraAll };
 }

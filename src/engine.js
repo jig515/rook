@@ -113,6 +113,7 @@ export async function* runChat({ body, signal, level, onHead }) {
 
   let chars = 0;
   let reasoningChars = 0;
+  let rawBytes = 0;
   let finishReason = null;
   let ttfb = null;
   let firstBody = null;
@@ -152,6 +153,7 @@ export async function* runChat({ body, signal, level, onHead }) {
           trace.stage(`first body · ${trace.ms}ms`);
         }
       }
+      if (ev.raw) rawBytes += ev.raw.length;
       if (ev.reasoning) reasoningChars += ev.reasoning.length;
       if (ev.finish) finishReason = ev.finish;
       if (ev.finish) trace.finish('ok', { summary: summary() });

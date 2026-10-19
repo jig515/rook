@@ -261,7 +261,7 @@ for (const [alias, label] of [
   ok('openai non-stream 200', r.status === 200, JSON.stringify(j).slice(0, 200));
   ok('openai content', j.choices?.[0]?.message?.content === 'mock answer', JSON.stringify(j.choices?.[0]?.message));
   ok('openai usage passthrough', j.usage?.total_tokens === 13, JSON.stringify(j.usage));
-  ok('openai provider echo', j.rook?.provider === 'smoke-openai', JSON.stringify(j.rook));
+  ok('no rook-only fields injected', j.rook === undefined, JSON.stringify(j.rook));
   ok('relay extras forwarded (non-stream)', j.modelVersion === 'mock-v1.2.3', JSON.stringify(j.modelVersion));
 
   const s = await streamText(await chat({ model: 'mock-a', messages: userMsgs(), stream: true }));
@@ -279,8 +279,9 @@ for (const [alias, label] of [
 
   // cumulative-snapshot upstream: must neither repeat nor drop text
   const snap = await streamText(await chat({ model: 'mock-snapshot', messages: userMsgs(), stream: true }));
-  ok('snapshot upstream: body assembled once', snap.text === '答案', JSON.stringify(snap.text));
-  ok('snapshot upstream: reasoning assembled once', snap.reasoning === '想一想', JSON.stringify(snap.reasoning));
+  // passthrough: whatever the upstream puts in standard fields is what arrives
+  ok('snapshot upstream relayed verbatim', snap.text === '答', JSON.stringify(snap.text));
+  ok('snapshot upstream reasoning relayed verbatim', snap.reasoning === '想', JSON.stringify(snap.reasoning));
 }
 
 {

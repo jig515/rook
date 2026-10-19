@@ -293,9 +293,14 @@ async function handleChat(req, res, body) {
     let finish = 'stop';
     const toolAcc = [];
     const extraAcc = {};
+    let rawOut = '';
     try {
       for (let step = first; !step.done; step = await iterator.next()) {
         const ev = step.value;
+        if (ev.raw) {
+          rawOut += ev.raw;
+          continue;
+        }
         if (ev.delta) text += ev.delta;
         if (ev.reasoning) reasoning += ev.reasoning;
         if (ev.toolCalls) mergeToolCalls(toolAcc, ev.toolCalls);
@@ -311,6 +316,10 @@ async function handleChat(req, res, body) {
     if (toolAcc.length) {
       msg.tool_calls = toolAcc.filter(Boolean);
       if (finish === 'stop') finish = 'tool_calls';
+    }
+    if (rawOut) {
+      res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+      return res.end(rawOut);
     }
     return sendJson(res, 200, {
       ...extraAcc,
@@ -350,6 +359,10 @@ async function handleChat(req, res, body) {
     writeChunk({ role: 'assistant', content: '' });
     for (let step = first; !step.done; step = await iterator.next()) {
       const ev = step.value;
+      if (ev.raw) {
+        if (!res.writableEnded && !res.destroyed) res.write(ev.raw);
+        continue;
+      }
       if (ev.reasoning || ev.delta) {
         const d = {};
         if (ev.reasoning) d.reasoning_content = ev.reasoning;
