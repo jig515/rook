@@ -53,20 +53,43 @@ function openTunnel(proxyUrl, host, port, timeoutMs) {
  * @returns {Promise<{status:number, ok:boolean, headers:object, body:import('node:stream').Readable, text:()=>Promise<string>}>}
  */
 export async function request(urlStr, opts = {}) {
-  const { method = 'GET', headers = {}, body, signal, proxy, timeoutMs = 30000 } = opts;
+  const { method = 'GET', headers = {}, body, signal, proxy, timeoutMs = 30000, onStage } = opts;
   const u = new URL(urlStr);
   const isHttps = u.protocol === 'https:';
   const port = Number(u.port) || (isHttps ? 443 : 80);
+  const target = `${u.hostname}:${port}`;
+  const t0 = Date.now();
 
   let socket = null;
   if (proxy && isHttps) {
-    socket = await openTunnel(proxy, u.hostname, port, timeoutMs);
+    onStage?.(`proxy tunnel → ${target} via ${proxy}`);
+    try {
+      socket = await openTunnel(proxy, u.hostname, port, timeoutMs);
+    } catch (e) {
+      onStage?.(`proxy tunnel failed · ${Date.now() - t0}ms · ${e.code || e.message}`);
+      throw e;
+    }
+    onStage?.(`proxy tunnel ok · ${Date.now() - t0}ms`);
+  } else {
+    onStage?.(`connecting ${target}${proxy ? ' (plain http)' : ' (direct)'}`);
   }
 
   const payload = body == null ? null : Buffer.from(body);
   const lib = isHttps ? https : http;
 
   return new Promise((resolve, reject) => {
+    let settled = false;
+    const fail = (e) => {
+      if (settled) return;
+      settled = true;
+      // Aborts are classified one level up (client hung up / idle / start
+      // timeout); only genuine transport failures belong here.
+      if (e.name !== 'AbortError') {
+        onStage?.(`connection failed · ${Date.now() - t0}ms · ${e.code || e.message}`);
+      }
+      reject(e);
+    };
+
     const req = lib.request(
       {
         hostname: u.hostname,
@@ -81,6 +104,7 @@ export async function request(urlStr, opts = {}) {
         ...(socket ? { createConnection: () => socket } : {})
       },
       (res) => {
+        settled = true;
         const chunks = [];
         let consumed = false;
         const text = () =>
@@ -91,6 +115,7 @@ export async function request(urlStr, opts = {}) {
             res.on('end', () => res2(Buffer.concat(chunks).toString('utf8')));
             res.on('error', rej2);
           });
+        onStage?.(`response ${res.statusCode} · ${Date.now() - t0}ms`);
         resolve({
           status: res.statusCode,
           ok: res.statusCode >= 200 && res.statusCode < 300,
@@ -101,7 +126,10 @@ export async function request(urlStr, opts = {}) {
       }
     );
 
-    req.on('error', reject);
+    req.on('error', fail);
+    req.on('timeout', () => {
+      req.destroy(Object.assign(new Error(`upstream socket timeout after ${timeoutMs}ms`), { name: 'TimeoutError' }));
+    });
     if (signal) {
       const onAbort = () => req.destroy(Object.assign(new Error('aborted'), { name: 'AbortError' }));
       if (signal.aborted) {

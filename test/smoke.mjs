@@ -152,6 +152,15 @@ const SMOKE_PROVIDERS = [
     models: [{ id: 'slow-cli', alias: 'slow-cli', thinkingLevel: 'off' }]
   },
   {
+    id: 'smoke-dead',
+    name: 'Smoke unreachable upstream',
+    type: 'openai',
+    enabled: true,
+    baseUrl: 'http://127.0.0.1:1/v1',
+    apiKey: 'x',
+    models: [{ id: 'x', alias: 'dead', thinkingLevel: 'off' }]
+  },
+  {
     id: 'smoke-broken',
     name: 'Smoke broken upstream',
     type: 'openai',
@@ -359,6 +368,10 @@ for (const [alias, label] of [
 {
   const names = (await fetch(BASE + '/v1/models', { headers: { authorization: 'Bearer ' + API } }).then((r) => r.json())).data.map((m) => m.id);
   ok('duplicate alias appears once', names.filter((n) => n === 'echo').length === 1, JSON.stringify(names));
+
+  const dead = await chat({ model: 'dead', messages: userMsgs(), stream: false });
+  await dead.text();
+  ok('unreachable upstream → 5xx', dead.status >= 500, String(dead.status));
 
   const r = await chat({ model: 'broken', messages: userMsgs(), stream: false });
   ok('misconfigured upstream → 5xx json', r.status >= 500 && r.status < 600, String(r.status));

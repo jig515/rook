@@ -76,18 +76,15 @@ export async function* chat(ctx) {
   const noteBase = `temp=${body.temperature ?? '-'} top_p=${body.top_p ?? '-'} max=${body.max_tokens ?? body.max_completion_tokens ?? '-'} · thinking=${thinking.level} · ${body.model}@${provider.baseUrl}`;
   log?.note?.(noteBase);
 
-  const host = (() => { try { return new URL(provider.baseUrl).host; } catch { return provider.baseUrl; } })();
-  const t0 = Date.now();
-  log?.stage?.(`connecting ${host}${ctx.proxy ? ' via ' + ctx.proxy : ' (direct)'}`);
   const res = await request(`${trimSlash(provider.baseUrl)}/chat/completions`, {
     method: 'POST',
     headers: headers(provider),
     body: JSON.stringify(body),
     signal,
     proxy: ctx.proxy,
-    timeoutMs: 30000
+    timeoutMs: 30000,
+    onStage: (msg) => log?.stage?.(msg)
   });
-  log?.stage?.(`upstream ${res.status} · ${Date.now() - t0}ms`);
   if (!res.ok) throw await readError(res);
   if (!res.body) throw new Error('upstream returned empty body');
 

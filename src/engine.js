@@ -159,21 +159,31 @@ export async function* runChat({ body, signal, level }) {
     trace.finish('ok', { summary: summary() });
   } catch (e) {
     let err = e;
+    // Trust our own abort reasons over the error object: node rewrites the
+    // message of a destroyed request to a bare "aborted", losing the cause.
+    const why = ac.signal.reason;
+
     if (e?.message === 'fetch failed' && e.cause) {
       // undici hides the real reason in `cause`; surface it or we are blind.
       const c = e.cause;
       const detail = [c.code, c.syscall, c.hostname, c.message].filter(Boolean).join(' · ');
       err = new HttpError(502, `upstream fetch failed: ${detail || 'unknown network error'}`, 'upstream_unreachable');
       err.cause = c;
-    } else if (e?.name === 'AbortError' && signal.aborted) {
+    } else if (signal.aborted) {
       err = new HttpError(499, 'client closed the request', 'client_closed');
-    } else if (e?.name === 'TimeoutError' || e?.name === 'AbortError') {
-      const why = ac.signal.reason;
-      err =
-        why === 'idle-timeout'
-          ? new HttpError(504, `upstream went quiet for ${idleTimeout}ms mid-stream`, 'upstream_idle')
-          : new HttpError(504, `upstream did not send anything within ${startTimeout}ms`, 'upstream_timeout');
+    } else if (why === 'idle-timeout') {
+      err = new HttpError(504, `upstream went quiet for ${idleTimeout}ms mid-stream`, 'upstream_idle');
+    } else if (why === 'start-timeout') {
+      err = new HttpError(504, `upstream did not send anything within ${startTimeout}ms`, 'upstream_timeout');
+    } else if (e?.name === 'TimeoutError') {
+      err = new HttpError(504, `upstream timed out`, 'upstream_timeout');
+    } else if (!(err instanceof HttpError) && /aborted/i.test(String(err?.message))) {
+      err = new HttpError(499, 'request aborted', 'client_closed');
     }
+    if (err.code === 'upstream_idle') trace.stage(`no response · ${trace.ms}ms · stream went silent`);
+    else if (err.code === 'upstream_timeout') trace.stage(`no response · ${trace.ms}ms · nothing came back`);
+    else if (err.code === 'client_closed') trace.stage(`client hung up · ${trace.ms}ms`);
+    else trace.stage(`failed · ${trace.ms}ms · ${String(err.message).slice(0, 90)}`);
     trace.finish('error', { detail: err.message, summary: err.message.slice(0, 120) });
     throw err;
   } finally {
