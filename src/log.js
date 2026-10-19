@@ -34,7 +34,7 @@ export function push(level, msg, extra = {}) {
   const limit = Math.max(20, get().logLimit || 300);
   while (ring.length > limit) ring.shift();
   broadcast(entry);
-  const tag = level === 'error' ? 'ERR ' : level === 'warn' ? 'WRN ' : '    ';
+  const tag = level === 'error' ? 'ERR ' : level === 'warn' ? 'WRN ' : extra.kind === 'stage' ? ' →  ' : '    ';
   if (level !== 'debug' || process.env.ROOK_DEBUG) {
     // print the masked copy, not the raw arguments — same reason as the ring
     console.log(`[rook] ${tag}${entry.msg}${entry.detail ? ' — ' + String(entry.detail).slice(0, 400) : ''}`);
@@ -68,6 +68,11 @@ export function startRequest(meta) {
   return {
     note(msg) {
       if (msg) details.push(String(msg));
+    },
+    /** One line per lifecycle milestone: received → connecting → status → … */
+    stage(msg) {
+      if (!msg) return;
+      push('info', msg, { kind: 'stage', meta });
     },
     finish(state, extra = {}) {
       if (closed) return;

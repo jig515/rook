@@ -60,6 +60,8 @@ export function wantsPassthrough(provider, adapter) {
 export async function* runChat({ body, signal, level }) {
   const { provider, model, adapter, hit } = targetFor(body.model);
   const lvl = level || pickLevel(body, hit);
+  const msgCount = (body.messages || []).length;
+  const bodyKb = (JSON.stringify(body).length / 1024).toFixed(1);
   const trace = startRequest({
     provider: provider.id,
     adapter: provider.type,
@@ -101,9 +103,12 @@ export async function* runChat({ body, signal, level }) {
     level: lvl,
     signal: sig,
     log: {
-      note: (msg) => trace.note(msg)
+      note: (msg) => trace.note(msg),
+      stage: (msg) => trace.stage(msg)
     }
   };
+
+  trace.stage(`received · ${msgCount} msg · ${bodyKb} KB · level=${lvl}`);
 
   let chars = 0;
   let reasoningChars = 0;
@@ -134,13 +139,17 @@ export async function* runChat({ body, signal, level }) {
       if (!started) {
         started = true;
         ttfb = trace.ms;
+        trace.stage(`first byte · ${trace.ms}ms`);
         if (!adapter.managesTimeout) arm(idleTimeout, 'idle-timeout');
       } else if (!adapter.managesTimeout) {
         arm(idleTimeout, 'idle-timeout');
       }
       if (ev.delta) {
         chars += ev.delta.length;
-        if (firstBody === null) firstBody = trace.ms;
+        if (firstBody === null) {
+          firstBody = trace.ms;
+          trace.stage(`first body · ${trace.ms}ms`);
+        }
       }
       if (ev.reasoning) reasoningChars += ev.reasoning.length;
       if (ev.finish) finishReason = ev.finish;
