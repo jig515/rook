@@ -793,7 +793,8 @@ function openSettings() {
         <div class="hint">127.0.0.1 仅本机；0.0.0.0 允许酒馆从局域网访问</div></div>
     </div>
     <div class="grid-2">
-      <div class="field"><label>请求超时 (ms)</label><input id="s-timeout" type="number" value="${esc(c.timeoutMs)}" /></div>
+      <div class="field"><label>首字节超时 (ms)</label><input id="s-timeout" type="number" value="${esc(c.timeoutMs)}" /></div>
+      <div class="field"><label>中途静默超时 (ms)</label><input id="s-idle" type="number" value="${esc(c.idleTimeoutMs || 60000)}" /></div>
       <div class="field"><label>日志保留条数</label><input id="s-loglimit" type="number" value="${esc(c.logLimit)}" /></div>
     </div>
     <div class="field"><label>出网代理</label>
@@ -822,6 +823,7 @@ function openSettings() {
     state.cfg.host = $('#s-host').value.trim() || '127.0.0.1';
     state.cfg.timeoutMs = Number($('#s-timeout').value) || 240000;
     state.cfg.logLimit = Number($('#s-loglimit').value) || 300;
+    state.cfg.idleTimeoutMs = Number($('#s-idle').value) || 60000;
     state.cfg.proxy = $('#s-proxy').value.trim();
     state.cfg.apiKey = $('#s-apikey').value.trim();
     state.cfg.adminKey = $('#s-adminkey').value.trim();
