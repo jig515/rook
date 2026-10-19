@@ -258,6 +258,7 @@ async function handleChat(req, res, body) {
   // when its first token arrives — otherwise a slow first token looks like a
   // dead connection and the client's own timeout kills it.
   let headSent = false;
+  let beat = null;
   const ensureHead = () => {
     if (headSent || res.writableEnded || res.destroyed) return;
     headSent = true;
@@ -265,6 +266,12 @@ async function handleChat(req, res, body) {
     // writeHead only records the headers; flushHeaders actually puts them on the
     // wire, which is the whole point here — the client must see 200 immediately.
     res.flushHeaders?.();
+    // Start keep-alives right away. An upstream can legitimately think for a
+    // minute before its first token, and a client that sees a silent socket for
+    // that long will give up — even though data is coming.
+    beat = setInterval(() => {
+      if (!res.writableEnded && !res.destroyed) res.write(': keep-alive\n\n');
+    }, 5000);
   };
 
   const iterator = runChat({ body, signal: ac.signal, onHead: stream ? ensureHead : undefined })[Symbol.asyncIterator]();
@@ -319,9 +326,6 @@ async function handleChat(req, res, body) {
   }
 
   ensureHead();
-  const beat = setInterval(() => {
-    if (!res.writableEnded && !res.destroyed) res.write(': keep-alive\n\n');
-  }, 15000);
 
   const writeChunk = (delta, finishReason = null, extra = {}) => {
     if (res.writableEnded || res.destroyed) return;
