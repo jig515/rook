@@ -17,6 +17,7 @@ export function defaultConfig() {
     apiKey: 'sk-rook-' + rnd(28),
     adminKey: rnd(20),
     timeoutMs: 240000,
+    idleTimeoutMs: 60000,
     proxy: '',
     allowOrigins: ['*'],
     logLimit: 300,

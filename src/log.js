@@ -47,6 +47,9 @@ export const warn = (m, e) => push('warn', m, e);
 export const error = (m, e) => push('error', m, e);
 export const debug = (m, e) => push('debug', m, e);
 
+/** In-flight progress of a streaming request: goes to the console and the ring. */
+export const progress = (m, e) => push('info', m, { kind: 'progress', ...e });
+
 export function recent(limit = 200) {
   return ring.slice(-limit);
 }

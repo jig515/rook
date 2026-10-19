@@ -10,7 +10,7 @@
 import { get as getConfig, resolveModel, providerTarget } from './config.js';
 import { getAdapter } from './adapters/index.js';
 import { normalizeLevel } from './thinking.js';
-import { startRequest } from './log.js';
+import { startRequest, progress } from './log.js';
 
 export class HttpError extends Error {
   constructor(status, message, code = 'gateway_error') {
@@ -74,7 +74,7 @@ export async function* runChat({ body, signal, level }) {
   // only silence (`idleTimeout`) aborts. CLI adapters run their own watchdog.
   const cfg = getConfig();
   const startTimeout = Number(provider.timeoutMs || cfg.timeoutMs || 0) || 120000;
-  const idleTimeout = Number(provider.idleTimeoutMs || cfg.idleTimeoutMs || 0) || 120000;
+  const idleTimeout = Number(provider.idleTimeoutMs || cfg.idleTimeoutMs || 0) || 60000;
 
   const ac = new AbortController();
   let timer = null;
@@ -109,8 +109,25 @@ export async function* runChat({ body, signal, level }) {
   let reasoningChars = 0;
   let finishReason = null;
   let ttfb = null;
+  let firstBody = null;
+
   const summary = () =>
-    `content=${chars} reasoning=${reasoningChars} finish=${finishReason || '-'} · first token ${ttfb ?? '—'}ms · total ${trace.ms}ms`;
+    `content=${chars} reasoning=${reasoningChars} finish=${finishReason || '-'} · first token ${ttfb ?? '—'}ms` +
+    ` · first body ${firstBody ?? '—'}ms · total ${trace.ms}ms`;
+
+  // A ticker, not a per-chunk check: when an upstream goes silent before the
+  // first byte the loop body never runs, and that is exactly when the log
+  // matters most.
+  const ticker = setInterval(() => {
+    if (trace.ms < 2500) return;
+    const secs = (trace.ms / 1000).toFixed(1);
+    const phase = !started ? 'waiting first byte' : firstBody === null ? 'thinking' : 'streaming';
+    const rate = Math.round((chars + reasoningChars) / Math.max(trace.ms / 1000, 0.001));
+    progress(
+      `${hit.name} · ${secs}s · ${phase} · content ${chars} / reasoning ${reasoningChars}` +
+        (firstBody !== null ? ` · ${rate} c/s` : '')
+    );
+  }, 2500);
 
   try {
     for await (const ev of adapter.chat(ctx)) {
@@ -121,7 +138,10 @@ export async function* runChat({ body, signal, level }) {
       } else if (!adapter.managesTimeout) {
         arm(idleTimeout, 'idle-timeout');
       }
-      if (ev.delta) chars += ev.delta.length;
+      if (ev.delta) {
+        chars += ev.delta.length;
+        if (firstBody === null) firstBody = trace.ms;
+      }
       if (ev.reasoning) reasoningChars += ev.reasoning.length;
       if (ev.finish) finishReason = ev.finish;
       if (ev.finish) trace.finish('ok', { summary: summary() });
@@ -148,6 +168,7 @@ export async function* runChat({ body, signal, level }) {
     trace.finish('error', { detail: err.message, summary: err.message.slice(0, 120) });
     throw err;
   } finally {
+    clearInterval(ticker);
     clearTimeout(timer);
   }
 }
