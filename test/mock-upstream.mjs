@@ -71,6 +71,24 @@ export function startMock(port = 0) {
         return json(res, { error: { message: 'Too big: expected number to be <=1 at temperature' } }, 400);
       }
 
+      if (model === 'snapshot') {
+        // Mimics Gemini-behind-a-shim: ordinary_parts is a *cumulative snapshot*
+        // (every chunk repeats the whole text so far), and some chunks carry no
+        // standard fields at all.
+        openSse(res);
+        const send = (o) => res.write(`data: ${JSON.stringify(o)}\n\n`);
+        const g = (...parts) => ({ google: { ordinary_parts: parts } });
+        const part = (kind, text) => ({ kind, text });
+        send(chunk({ role: 'assistant', content: '' }));
+        send(chunk({ reasoning_content: '想', extra_content: g(part('thought', '想')) }));
+        send(chunk({ extra_content: g(part('thought', '想一想')) }));
+        send(chunk({ content: '答', extra_content: g(part('thought', '想一想'), part('text', '答')) }));
+        send(chunk({ extra_content: g(part('thought', '想一想'), part('text', '答案')) }));
+        send(chunk({}, 'stop'));
+        res.write('data: [DONE]\n\n');
+        return res.end();
+      }
+
       if (model === 'tools') {
         openSse(res);
         const send = (o) => res.write(`data: ${JSON.stringify(o)}\n\n`);

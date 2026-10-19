@@ -106,7 +106,8 @@ const SMOKE_PROVIDERS = [
       { id: 'tools', alias: 'mock-tools', thinkingLevel: 'off' },
       { id: 'boom', alias: 'mock-boom', thinkingLevel: 'off' },
       { id: 'ratelimit', alias: 'mock-429', thinkingLevel: 'off' },
-      { id: 'badrequest', alias: 'mock-400', thinkingLevel: 'off' }
+      { id: 'badrequest', alias: 'mock-400', thinkingLevel: 'off' },
+      { id: 'snapshot', alias: 'mock-snapshot', thinkingLevel: 'off' }
     ]
   },
   {
@@ -257,6 +258,11 @@ for (const [alias, label] of [
   ok('openai stream text', s.text === 'mock answer', JSON.stringify(s.text));
   ok('relay extras forwarded (stream)', s.raw.includes('mock-v1.2.3'), 'modelVersion was dropped');
   ok('relay fingerprint kept', s.raw.includes('fp_mock'), 'system_fingerprint was overwritten');
+
+  // cumulative-snapshot upstream: must neither repeat nor drop text
+  const snap = await streamText(await chat({ model: 'mock-snapshot', messages: userMsgs(), stream: true }));
+  ok('snapshot upstream: body assembled once', snap.text === '答案', JSON.stringify(snap.text));
+  ok('snapshot upstream: reasoning assembled once', snap.reasoning === '想一想', JSON.stringify(snap.reasoning));
 }
 
 {

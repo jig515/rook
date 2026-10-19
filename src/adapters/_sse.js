@@ -85,6 +85,38 @@ export async function* sseJson(res) {
 }
 
 /**
+ * Accumulates text for one channel (body or reasoning) regardless of how the
+ * upstream streams it.
+ *
+ * Some upstreams send increments (`delta.content`), some send a growing snapshot
+ * of the whole text (Gemini parts behind a shim), some send both. Both feeds go
+ * into the same accumulator: increments append, snapshots replace when longer.
+ * `take()` then hands out only what has not been sent yet, so nothing repeats and
+ * nothing goes missing. No per-vendor branching.
+ */
+export class TextChannel {
+  constructor() {
+    this.acc = '';
+    this.sent = '';
+  }
+
+  delta(text) {
+    if (text) this.acc += text;
+  }
+
+  snapshot(text) {
+    if (typeof text === 'string' && text.length > this.acc.length) this.acc = text;
+  }
+
+  take() {
+    if (this.acc.length <= this.sent.length) return '';
+    const out = this.acc.slice(this.sent.length);
+    this.sent = this.acc;
+    return out;
+  }
+}
+
+/**
  * Emits only the *new* part of an accumulating text. CLI tools usually print
  * either the full text again on every event or a final blob; both cases work.
  */

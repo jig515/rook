@@ -3,7 +3,7 @@
  * proxy that speaks /v1/chat/completions. This is the workhorse adapter.
  */
 import { applyThinking, pickReasoning } from '../thinking.js';
-import { trimSlash, readError, sseJson, normalizeMessages, textOf } from './_sse.js';
+import { trimSlash, readError, sseJson, normalizeMessages, textOf, TextChannel } from './_sse.js';
 import { request } from '../http.js';
 
 export const type = 'openai';
@@ -71,6 +71,8 @@ export async function listModels(provider, opts = {}) {
 export async function* chat(ctx) {
   const { provider, model, signal, log } = ctx;
   const { body, thinking } = buildBody(provider, model, ctx);
+  const contentCh = new TextChannel();
+  const reasoningCh = new TextChannel();
   const noteBase = `temp=${body.temperature ?? '-'} top_p=${body.top_p ?? '-'} max=${body.max_tokens ?? body.max_completion_tokens ?? '-'} · thinking=${thinking.level} · ${body.model}@${provider.baseUrl}`;
   log?.note?.(noteBase);
 
@@ -116,17 +118,37 @@ export async function* chat(ctx) {
     const choice = chunk.choices?.[0];
     if (choice) {
       const d = choice.delta || choice.message || {};
-      // The standard fields are the only real payload. extra_content.google.ordinary_parts
-      // is cumulative metadata (part order + thought signatures), NOT text — reading it
-      // repeats everything, see convert_chunk_to_openai in vertex2openai.
-      const reasoning = pickReasoning(d) || null;
-      // Flatten array/object content into text instead of JSON-stringifying it.
-      const text = textOf(d.content) || null;
+
+      // Feed both possible carriers into per-channel accumulators.
+      //   increments: delta.content / delta.reasoning_content (the OpenAI way)
+      //   snapshots:  extra_content.google.ordinary_parts (Gemini behind a shim,
+      //               cumulative: every chunk repeats the whole text so far)
+      // TextChannel decides which is more complete; we never guess per vendor.
+      const incText = textOf(d.content);
+      const incReason = pickReasoning(d);
+      if (incText) contentCh.delta(incText);
+      if (incReason) reasoningCh.delta(incReason);
+
+      const parts = d.extra_content?.google?.ordinary_parts;
+      if (Array.isArray(parts) && parts.length) {
+        let r = '';
+        let c = '';
+        for (const pt of parts) {
+          if (!pt || typeof pt.text !== 'string' || !pt.text) continue;
+          if (pt.kind === 'thought') r += pt.text;
+          else c += pt.text;
+        }
+        reasoningCh.snapshot(r);
+        contentCh.snapshot(c);
+      }
+
+      const outText = contentCh.take();
+      const outReason = reasoningCh.take();
 
       // Keep the upstream's atomicity: if one chunk carries both reasoning and
       // body text, they leave here in one event so the client sees them in the
       // same delta rather than as two separate chunks.
-      if (reasoning || text) yield { reasoning: reasoning || undefined, delta: text || undefined };
+      if (outText || outReason) yield { reasoning: outReason || undefined, delta: outText || undefined };
       if (Array.isArray(d.tool_calls) && d.tool_calls.length) yield { toolCalls: d.tool_calls };
 
       // Same for unknown keys inside the delta.
