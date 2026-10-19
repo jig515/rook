@@ -62,6 +62,7 @@ export function startMock(port = 0) {
         return json(res, { error: { message: 'bad upstream key' } }, 401);
       }
       const model = body?.model;
+
       if (model === 'boom') return json(res, { error: { message: 'upstream refused' } }, 401);
       if (model === 'ratelimit') return json(res, { error: { message: 'rate limited' } }, 429);
       if (model === 'badrequest') return json(res, { error: { message: 'bad params' } }, 400);
@@ -70,6 +71,42 @@ export function startMock(port = 0) {
       if (model === 'strict' && typeof body.temperature === 'number' && body.temperature > 1) {
         // deliberately mirrors Gemini's complaint
         return json(res, { error: { message: 'Too big: expected number to be <=1 at temperature' } }, 400);
+      }
+
+      // Honour stream:false — the gateway now passes that through instead of
+      // always asking for a stream.
+      if (body?.stream === false) {
+        const base = {
+          id: 'chatcmpl-mock',
+          object: 'chat.completion',
+          created: 1,
+          model: 'mock-a',
+          usage: { prompt_tokens: 9, completion_tokens: 4, total_tokens: 13 },
+          system_fingerprint: 'fp_mock',
+          modelVersion: 'mock-v1.2.3'
+        };
+        if (model === 'tools') {
+          return json(res, {
+            ...base,
+            choices: [
+              {
+                index: 0,
+                message: {
+                  role: 'assistant',
+                  content: null,
+                  tool_calls: [
+                    { id: 'call_1', type: 'function', function: { name: 'get_weather', arguments: '{"city":"SH"}' } }
+                  ]
+                },
+                finish_reason: 'tool_calls'
+              }
+            ]
+          });
+        }
+        return json(res, {
+          ...base,
+          choices: [{ index: 0, message: { role: 'assistant', content: 'mock answer' }, finish_reason: 'stop' }]
+        });
       }
 
       if (model === 'delayed') {

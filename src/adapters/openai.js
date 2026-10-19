@@ -29,12 +29,13 @@ export function headers(provider) {
 
 export function buildBody(provider, model, request) {
   // Pure relay: every field the client sent goes to the upstream untouched.
-  // Only our own routing keys are stripped, plus model/messages/stream which we
-  // have to restate anyway.
+  // Only our own routing keys are stripped, plus model/messages which we have
+  // to restate. `stream` is echoed rather than forced — a non-stream request
+  // goes upstream as a non-stream request.
   const {
     model: _model,
     messages: _messages,
-    stream: _stream,
+    stream: clientStream,
     thinking_level,
     thinkingLevel,
     rook_thinking,
@@ -45,15 +46,12 @@ export function buildBody(provider, model, request) {
     ...rest,
     model: model.id || model.alias,
     messages: normalizeMessages(request.messages),
-    stream: true
+    stream: clientStream !== false
   };
-  if (provider.includeUsage !== false && body.stream_options === undefined) {
-    body.stream_options = { include_usage: true };
-  }
   const thinking = applyThinking(body, provider, request.level);
   Object.assign(body, provider.extraBody || {});
   if (provider.forceBody) Object.assign(body, provider.forceBody);
-  return { body, thinking };
+  return { body, thinking, isStream: body.stream !== false };
 }
 
 export async function listModels(provider, opts = {}) {
@@ -70,7 +68,7 @@ export async function listModels(provider, opts = {}) {
 
 export async function* chat(ctx) {
   const { provider, model, signal, log } = ctx;
-  const { body, thinking } = buildBody(provider, model, ctx);
+  const { body, thinking, isStream } = buildBody(provider, model, ctx);
   const contentCh = new TextChannel();
   const reasoningCh = new TextChannel();
   const noteBase = `temp=${body.temperature ?? '-'} top_p=${body.top_p ?? '-'} max=${body.max_tokens ?? body.max_completion_tokens ?? '-'} · thinking=${thinking.level} · ${body.model}@${provider.baseUrl}`;
@@ -88,6 +86,29 @@ export async function* chat(ctx) {
   if (!res.ok) throw await readError(res);
   ctx.onHead?.();
   if (!res.body) throw new Error('upstream returned empty body');
+
+  // The client asked for a non-stream completion, so the upstream was asked for
+  // one too. Just read the JSON back and pass the pieces along.
+  if (!isStream) {
+    let json;
+    try {
+      json = JSON.parse(await res.text());
+    } catch (e) {
+      throw new Error(`upstream sent non-JSON: ${e.message}`);
+    }
+    const choice = json.choices?.[0];
+    const msg = choice?.message || {};
+    const r = pickReasoning(msg);
+    if (r) yield { reasoning: r };
+    const t = textOf(msg.content);
+    if (t) yield { delta: t };
+    if (Array.isArray(msg.tool_calls) && msg.tool_calls.length) yield { toolCalls: msg.tool_calls };
+    if (choice?.finish_reason) yield { finish: choice.finish_reason };
+    const { choices: _c, usage, ...extra } = json;
+    if (Object.keys(extra).length) yield { extra };
+    if (usage) yield { usage };
+    return;
+  }
 
   let modelVersion = null;
   let lastFingerprint = null;

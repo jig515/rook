@@ -160,25 +160,14 @@ export function pickParams(src) {
   return out;
 }
 
-/** Providers may need to reshape the role/name/content envelope. */
-export function normalizeMessages(messages, { mergeSystem = false } = {}) {
-  const list = Array.isArray(messages) ? messages : [];
-  const out = list.map((m) => {
-    const msg = { role: m.role || 'user' };
-    if (m.name) msg.name = m.name;
-    if (m.content !== undefined) msg.content = m.content;
-    if (m.tool_calls) msg.tool_calls = m.tool_calls;
-    if (m.tool_call_id) msg.tool_call_id = m.tool_call_id;
-    if (Array.isArray(m.content)) {
-      msg.content = m.content.map((part) => {
-        if (part?.type === 'text') return { type: 'text', text: part.text ?? '' };
-        return part;
-      });
-    }
-    return msg;
-  });
-  if (!mergeSystem) return out.filter((m) => m.role !== 'system' || typeof m.content !== 'undefined');
-  return out;
+/**
+ * Messages go to the upstream exactly as they arrived. No field is dropped, no
+ * message is removed, no content is rewritten — the gateway is a courier, and
+ * silently dropping a field the client sent is how replies go subtly wrong.
+ */
+export function normalizeMessages(messages) {
+  if (!Array.isArray(messages)) return [];
+  return messages.map((m) => ({ ...m }));
 }
 
 export function textOf(content) {

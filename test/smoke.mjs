@@ -294,7 +294,7 @@ for (const [alias, label] of [
 
   const r3 = await chat({ model: 'mock-a', messages: userMsgs(), stream: false, stream_options: { include_usage: true } });
   await r3.json();
-  ok('sampler params forwarded', mockState.last.body?.stream === true);
+  ok('stream flag follows the client', mockState.last.body?.stream === false, String(mockState.last.body?.stream));
 }
 
 {

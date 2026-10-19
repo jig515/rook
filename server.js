@@ -311,9 +311,9 @@ async function handleChat(req, res, body) {
       object: 'chat.completion',
       created,
       model: hit.name,
-      system_fingerprint: extraAcc.system_fingerprint || `rook/${VERSION}`,
+      ...(extraAcc.system_fingerprint ? { system_fingerprint: extraAcc.system_fingerprint } : {}),
       choices: [{ index: 0, message: msg, finish_reason: finish }],
-      usage: usage || estimateUsage(body, text),
+      ...(usage ? { usage } : {}),
       rook: { provider: provider.id, adapter: provider.type, thinking: level }
     });
   }
@@ -333,7 +333,7 @@ async function handleChat(req, res, body) {
           object: 'chat.completion.chunk',
           created,
           model: hit.name,
-          system_fingerprint: extra.system_fingerprint || `rook/${VERSION}`,
+          ...(extra.system_fingerprint ? { system_fingerprint: extra.system_fingerprint } : {}),
           choices: [{ index: 0, delta, finish_reason: finishReason }]
         }) +
         '\n\n'
@@ -417,15 +417,6 @@ function mapFinish(reason) {
   return 'stop';
 }
 
-function estimateUsage(body, text) {
-  const inChars = (body.messages || []).reduce((n, m) => {
-    const c = m.content;
-    return n + (typeof c === 'string' ? c.length : Array.isArray(c) ? c.map((p) => p?.text || '').join('').length : 0);
-  }, 0);
-  const p = Math.ceil(inChars / 3.5);
-  const c = Math.ceil((text || '').length / 3.5);
-  return { prompt_tokens: p, completion_tokens: c, total_tokens: p + c, estimated: true };
-}
 
 async function handleLegacyCompletion(req, res, body) {
   const prompt = typeof body.prompt === 'string' ? body.prompt : (body.prompt || []).join('\n');
@@ -445,8 +436,7 @@ async function handleLegacyCompletion(req, res, body) {
     object: 'text_completion',
     created: Math.floor(Date.now() / 1000),
     model,
-    choices: [{ index: 0, text, finish_reason: 'stop' }],
-    usage: estimateUsage({ messages }, text)
+    choices: [{ index: 0, text, finish_reason: 'stop' }]
   });
 }
 
