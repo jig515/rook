@@ -47,12 +47,20 @@ function fail(res, e, extraHeaders) {
     if ([400, 409, 422, 429].includes(up) || (up >= 500 && up <= 599)) status = up;
   }
   const code = e.code || 'upstream_error';
-  sendJson(
-    res,
-    status,
-    { error: { message: e.message || 'unknown error', type: code, code } },
-    extraHeaders
-  );
+  const payload = { error: { message: e.message || 'unknown error', type: code, code } };
+
+  // The 200 may already be on the wire — then the only honest thing left is an
+  // SSE error event followed by [DONE], so the client shows the reason instead
+  // of hanging on a silent stream.
+  if (res.headersSent) {
+    if (!res.writableEnded && !res.destroyed) {
+      res.write('data: ' + JSON.stringify(payload) + '\n\n');
+      res.write('data: [DONE]\n\n');
+      res.end();
+    }
+    return;
+  }
+  sendJson(res, status, payload, extraHeaders);
 }
 
 function readBody(req, limit = 64 * 1024 * 1024) {
@@ -246,10 +254,23 @@ async function handleChat(req, res, body) {
   const stream = body.stream !== false;
   const id = 'chatcmpl-' + crypto.randomBytes(12).toString('hex');
   const created = Math.floor(Date.now() / 1000);
-  const iterator = runChat({ body, signal: ac.signal })[Symbol.asyncIterator]();
+  // Tell the client the stream is live as soon as the upstream answers, not
+  // when its first token arrives — otherwise a slow first token looks like a
+  // dead connection and the client's own timeout kills it.
+  let headSent = false;
+  const ensureHead = () => {
+    if (headSent || res.writableEnded || res.destroyed) return;
+    headSent = true;
+    res.writeHead(200, sseHeaders(v1Cors(req.headers.origin)));
+    // writeHead only records the headers; flushHeaders actually puts them on the
+    // wire, which is the whole point here — the client must see 200 immediately.
+    res.flushHeaders?.();
+  };
 
-  // Pull the first event before committing to a 200: upstream errors should
-  // reach SillyTavern as a readable JSON error, not a broken stream.
+  const iterator = runChat({ body, signal: ac.signal, onHead: stream ? ensureHead : undefined })[Symbol.asyncIterator]();
+
+  // Still wait for the first event when nothing can be sent yet: an upstream
+  // that fails before producing anything gets a clean JSON error.
   let first;
   try {
     first = await iterator.next();
@@ -297,7 +318,7 @@ async function handleChat(req, res, body) {
     });
   }
 
-  res.writeHead(200, sseHeaders(v1Cors(req.headers.origin)));
+  ensureHead();
   const beat = setInterval(() => {
     if (!res.writableEnded && !res.destroyed) res.write(': keep-alive\n\n');
   }, 15000);

@@ -86,6 +86,7 @@ export async function* chat(ctx) {
     onStage: (msg) => log?.stage?.(msg)
   });
   if (!res.ok) throw await readError(res);
+  ctx.onHead?.();
   if (!res.body) throw new Error('upstream returned empty body');
 
   let modelVersion = null;

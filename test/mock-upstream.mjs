@@ -26,6 +26,7 @@ function openSse(res) {
     'cache-control': 'no-cache',
     connection: 'keep-alive'
   });
+  res.flushHeaders?.();
 }
 
 const chunk = (delta, finish = null) => ({
@@ -69,6 +70,22 @@ export function startMock(port = 0) {
       if (model === 'strict' && typeof body.temperature === 'number' && body.temperature > 1) {
         // deliberately mirrors Gemini's complaint
         return json(res, { error: { message: 'Too big: expected number to be <=1 at temperature' } }, 400);
+      }
+
+      if (model === 'delayed') {
+        // headers now, first token in 3s: the gateway must not hold the 200 back
+        openSse(res);
+        const send = (o) => res.write(`data: ${JSON.stringify(o)}
+
+`);
+        setTimeout(() => {
+          send(chunk({ role: 'assistant', content: '' }));
+          send(chunk({ content: 'late' }));
+          send(chunk({}, 'stop'));
+          res.write('data: [DONE]\n\n');
+          res.end();
+        }, 3000);
+        return;
       }
 
       if (model === 'snapshot') {

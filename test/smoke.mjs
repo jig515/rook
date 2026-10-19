@@ -107,7 +107,8 @@ const SMOKE_PROVIDERS = [
       { id: 'boom', alias: 'mock-boom', thinkingLevel: 'off' },
       { id: 'ratelimit', alias: 'mock-429', thinkingLevel: 'off' },
       { id: 'badrequest', alias: 'mock-400', thinkingLevel: 'off' },
-      { id: 'snapshot', alias: 'mock-snapshot', thinkingLevel: 'off' }
+      { id: 'snapshot', alias: 'mock-snapshot', thinkingLevel: 'off' },
+      { id: 'delayed', alias: 'mock-delayed', thinkingLevel: 'off' }
     ]
   },
   {
@@ -267,6 +268,14 @@ for (const [alias, label] of [
   ok('openai stream text', s.text === 'mock answer', JSON.stringify(s.text));
   ok('relay extras forwarded (stream)', s.raw.includes('mock-v1.2.3'), 'modelVersion was dropped');
   ok('relay fingerprint kept', s.raw.includes('fp_mock'), 'system_fingerprint was overwritten');
+
+  // slow first token: headers must reach the client immediately
+  const tHead = Date.now();
+  const dres = await chat({ model: 'mock-delayed', messages: userMsgs(), stream: true });
+  const headMs = Date.now() - tHead;
+  const delayed = await streamText(dres);
+  ok('headers arrive before the first token', headMs < 1500, headMs + 'ms');
+  ok('delayed body still arrives', delayed.text === 'late', JSON.stringify(delayed.text));
 
   // cumulative-snapshot upstream: must neither repeat nor drop text
   const snap = await streamText(await chat({ model: 'mock-snapshot', messages: userMsgs(), stream: true }));

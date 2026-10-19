@@ -57,7 +57,7 @@ export function wantsPassthrough(provider, adapter) {
   return provider.mode !== 'rewrite';
 }
 
-export async function* runChat({ body, signal, level }) {
+export async function* runChat({ body, signal, level, onHead }) {
   const { provider, model, adapter, hit } = targetFor(body.model);
   const lvl = level || pickLevel(body, hit);
   const msgCount = (body.messages || []).length;
@@ -96,6 +96,7 @@ export async function* runChat({ body, signal, level }) {
 
   const ctx = {
     provider,
+    onHead,
     model,
     proxy,
     messages: body.messages || [],
